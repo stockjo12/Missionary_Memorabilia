@@ -1,0 +1,950 @@
+---
+title: "Mission Modeling"
+author: "Stockton Nelson"
+format: pdf
+editor: visual
+---
+
+## Setup
+
+```{r}
+#Downloading Libraries
+library(tidyverse)   #Standard R Functions
+library(tidytext)    #TF-IDF Analysis 
+library(ordinal)     #Running Ordinal Regression
+library(patchwork)   #Plotting multiple plots together
+library(stringr)     #Formatting Text Data
+library(purrr)       #Formatting Text Data
+
+#Bringing in Data
+mission <- readxl::read_excel("Missionary_Memorabilia.xlsx", skip = 1) |>
+  janitor::clean_names()
+```
+
+## Data Wrangling
+
+```{r}
+#Obtaining Columns Names
+qn <- vector("character", length = 15)
+for (i in 19:33){
+  qn[i-18] <- colnames(mission)[i]
+}
+
+#Renaming and Filtering Data
+mission <- mission |>
+  rename(Q1 = qn[1], Q2 = qn[2], Q3 = qn[3], Q4 = qn[4], Q5A = qn[5],
+         Q5B = qn[6], Q5C = qn[7], Q5D = qn[8], Q5E = qn[9], Q5F = qn[10],
+         Q5G = qn[11], Q5H = qn[12], Q5 = qn[13], Q6 = qn[14], Q7 = qn[15],
+         duration = duration_in_seconds, latitude = location_latitude,
+         longitude = location_longitude, recaptcha = q_recaptcha_score) |>
+  dplyr::select(-recipient_last_name, -recipient_first_name,
+         -recipient_email, -external_data_reference) |>
+  filter((!is.na(Q4) | !is.na(Q6)) & !is.na(Q3))
+```
+
+```{r}
+#Making Ordered Factors
+mission <- mission |>
+  mutate(Q2 = factor(Q2),
+         Q3 = factor(Q3, levels = c("Less than 6 months", "6 - 12 months", "1-3 years", "3-5 years", "5-10 years", "10-20 years", "20-30 years", "30-40 years", "40+ years")),
+         Q3_grouped = case_when(
+           Q3 %in% c("Less than 6 months", "6 - 12 months") ~ "Less than a year",
+           Q3 %in% c("1-3 years", "3-5 years") ~ "1-5 years",
+           Q3 %in% c("5-10 years", "10-20 years") ~ "5-20 years",
+           Q3 %in% c("20-30 years", "30-40 years", "40+ years") ~ "20+ years"
+         ),
+         Q6 = factor(Q6, levels = c("Not at all important", "Slightly important",
+                       "Moderately important", "Very important", 
+                       "Extremely important"), ordered = TRUE),
+         Q6_grouped = case_when(
+           Q6 %in% c("Not at all important", "Slightly important") ~ "Low importance",
+           Q6 %in% c("Moderately important") ~ "Moderate importance",
+           Q6 %in% c("Very important", "Extremely important") ~ "High importance",
+         )) |>
+  mutate(Q3_grouped = factor(Q3_grouped,
+                             levels = c("Less than a year", "1-5 years", 
+                                        "5-20 years", "20+ years")),
+         Q6_grouped = factor(Q6_grouped, 
+                             levels = c("Low importance", "Moderate importance",
+                                        "High importance"),
+                             labels = c("Low importance", "Moderate importance",
+                                        "High importance"), ordered = TRUE))
+mission$Q3_grouped <- relevel(mission$Q3_grouped, ref = "Less than a year")
+```
+
+## Modeling
+
+#### Memorabilia Source Top Items
+
+#### Part A
+
+```{r}
+#Getting Word Counts
+Q5A_word_counts <- mission |>
+  filter(!is.na(q5a_cleaned)) |>
+  separate_rows(q5a_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5a_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5A_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#1E6FB2") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Nametags        = "Name Tags",
+    MissionCalls    = "Mission Calls",
+    Scriptures      = "Scriptures",
+    PreachMyGospels = "Preach My Gospel",
+    Certificates    = "Certificates"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Church Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5A_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part B
+
+```{r}
+#Getting Word Counts
+Q5B_word_counts <- mission |>
+  filter(!is.na(q5b_cleaned)) |>
+  separate_rows(q5b_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5b_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5B_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#7FBEE8") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Plaques         = "Plaques",
+    Certificates    = "Certificates",
+    Letters         = "Letters",
+    ReleaseLetters  = "Release Letters",
+    Ties            = "Ties",
+    Photos          = "Photos"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 6 Most Common Ward/Stake Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5B_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part C
+
+```{r}
+#Getting Word Counts
+Q5C_word_counts <- mission |>
+  filter(!is.na(q5c_cleaned)) |>
+  separate_rows(q5c_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5c_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5C_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#12897A") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Letters                 = "Letters",
+    Pins                    = "Pins",
+    Clothes                 = "Clothes",
+    TempleRecommendHolders  = "Temple Recommend Holders",
+    Artworks                = "Artwork"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Mission Leader Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5C_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part D
+
+```{r}
+#Getting Word Counts
+Q5D_word_counts <- mission |>
+  filter(!is.na(q5d_cleaned)) |>
+  separate_rows(q5d_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5d_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5D_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#F6C06A") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Crafts   = "Crafts",
+    Clothes  = "Clothes",
+    Jewelrys = "Jewelry",
+    Letters  = "Letters",
+    Mementos = "Mementos"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Members/Converts/Friends Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5D_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part E
+
+```{r}
+#Getting Word Counts
+Q5E_word_counts <- mission |>
+  filter(!is.na(q5e_cleaned)) |>
+  separate_rows(q5e_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5e_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5E_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#5FCDBB") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Ties     = "Ties",
+    Clothes  = "Clothes",
+    Letters  = "Letters",
+    Photos   = "Photos",
+    Jewelrys = "Jewelry"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Missionary Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5E_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part F
+
+```{r}
+#Getting Word Counts
+Q5F_word_counts <- mission |>
+  filter(!is.na(q5f_cleaned)) |>
+  separate_rows(q5f_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5f_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5F_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#E08A1E") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Flags      = "Flags",
+    Scrapbooks = "Scrapbooks",
+    Letters    = "Letters",
+    Photos     = "Photos",
+    Clothes    = "Clothes"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Family Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5F_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part G
+
+```{r}
+#Getting Word Counts
+Q5G_word_counts <- mission |>
+  filter(!is.na(q5g_cleaned)) |>
+  separate_rows(q5g_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5g_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5G_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#C42A6E") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Journals = "Journals",
+    Photos = "Photos",
+    Scriptures = "Scriptures",
+    Emails = "Emails",
+    Planners = "Planners"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Personal Records Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5G_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+#### Part H
+
+```{r}
+#Getting Word Counts
+Q5H_word_counts <- mission |>
+  filter(!is.na(q5h_cleaned)) |>
+  separate_rows(q5h_cleaned, sep = ", ") |>
+  mutate(item = str_squish(q5h_cleaned)) |>
+  count(item, sort = TRUE)
+
+#Making Bar Chart of Word Counts
+Q5H_word_counts |>
+  slice_max(n, n = 5) |>
+  ggplot(aes(x = reorder(item, n), y = n)) +
+  geom_col(fill = "#EA93B6") +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_discrete(labels = c(
+    Clothes     = "Clothes",
+    Mementos    = "Mementos",
+    Crafts      = "Crafts",
+    Accessories = "Accessories",
+    Jewelrys    = "Jewelry"
+  )) +
+  coord_flip(clip = "off") +
+  labs(
+    title = "Top 5 Most Common Other Memorabilia Items",
+    x = "",
+    y = "Count"
+  ) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Q5H_counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+### Overall Memorabilia Rankings
+
+```{r}
+#Combining Memorabilia Counts
+combined <- bind_rows(
+  list(
+    "Church"                   = Q5A_word_counts,
+    "Ward/Stake"               = Q5B_word_counts,
+    `Mission Leader`           = Q5C_word_counts,
+    "Members/Converts/Friends" = Q5D_word_counts,
+    "Missionary"               = Q5E_word_counts,
+    "Family"                   = Q5F_word_counts,
+    `Personal Records`         = Q5G_word_counts,
+    "Other"                    = Q5H_word_counts
+  ),
+  .id = "category"
+)
+
+#Making Colors for Graph
+eight_cols <- c(
+  "Church"                   = "#1E6FB2", 
+  "Ward/Stake"               = "#7FBEE8",
+  `Mission Leader`           = "#12897A", 
+  "Missionary"               = "#5FCDBB",
+  "Family"                   = "#E08A1E", 
+  "Members/Converts/Friends" = "#F6C06A",
+  `Personal Records`         = "#C42A6E", 
+  "Other"                    = "#EA93B6"
+)
+
+#Defining Level Order for the Bar Charts
+lvl <- c("Church", "Ward/Stake", "Mission Leader", "Missionary",
+         "Family", "Members/Converts/Friends", "Personal Records", "Other")
+```
+
+```{r}
+#Getting the Top 15 Memorabilia Items
+top15 <- combined |>
+  slice_max(n, n = 15, with_ties = FALSE) |>
+  mutate(item_label = item |>
+           str_replace_all("(?<=[a-z])(?=[A-Z])", " ") |>   
+           recode("Jewelrys" = "Jewelry",
+                  "Nametags" = "Name Tags")) |>
+  arrange(n) |>
+  mutate(pos = row_number())
+
+#Making Bar Chart of Memorabilia Item Counts by Category
+ggplot(top15, aes(x = pos, y = n, fill = category)) +
+  geom_col() +
+  geom_text(aes(label = n), y = Inf, hjust = -0.1) +
+  scale_x_continuous(breaks = top15$pos, labels = top15$item_label,
+                     expand = expansion(add = 0.6)) +
+  scale_fill_manual(values = eight_cols,
+                    breaks = lvl,
+                    labels = function(x) sub("Members/Converts/",
+                                             "Members/Converts/\n", x)) +
+  coord_flip(clip = "off") +
+  labs(title = "Top 15 Most Common Memorabilia Items by Category",
+       x = "", y = "Count", fill = "Category") +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0),
+        legend.position = "right",
+        legend.box.spacing = unit(1, "cm"))
+
+#Saving Plot
+# ggsave(
+#   filename = "Top_Memorabilia_Items_by_Category.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Getting the Top 15 Memorabilia Items
+top_items <- combined |>
+  group_by(item) |>
+  summarise(total = sum(n), .groups = "drop") |>
+  slice_max(total, n = 15)
+item_levels <- top_items |> arrange(total) |> pull(item)
+item_labels <- ifelse(item_levels == "MissionCalls", "Mission Calls",
+                      ifelse(item_levels == "Jewelrys", "Jewelry",
+                      ifelse(item_levels == "Nametags", "Name Tags",
+                             item_levels)))
+
+#Making the Dataframe for the Plot
+plot_df <- combined |>
+  semi_join(top_items, by = "item") |>
+  mutate(item = factor(item, levels = item_levels, labels = item_labels),
+         category = factor(category, levels = lvl)) 
+  
+top_items <- top_items |> mutate(item = factor(item, levels = item_levels,
+                                               labels = item_labels))
+
+#Making Bar Chart of Memorabilia Item Counts Overall
+ggplot(plot_df, aes(x = item, y = n, fill = category)) +
+  geom_col(position = position_stack(reverse = TRUE)) +
+  geom_text(data = top_items, aes(x = item, label = total),
+            y = Inf, hjust = -0.1, inherit.aes = FALSE) +
+  scale_fill_manual(values = eight_cols,
+                    breaks = lvl,
+                    labels = function(x) sub("Members/Converts/",
+                                             "Members/Converts/\n", x)) +
+  coord_flip(clip = "off") +
+  labs(title = "Top 15 Most Common Memorabilia Items Overall",
+       x = "", y = "Count", fill = "Category") +
+  theme(plot.margin = margin(t = 10, r = 30, b = 10, l = 0),
+        legend.position = "right",
+        legend.box.spacing = unit(1, "cm"))
+
+#Saving Plot
+# ggsave(
+#   filename = "Top_Memorabilia_Items_Overall.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+### Memorabilia Category Counts
+
+```{r}
+#Reformatting Q4 Answers
+mission_long <- mission |>
+  mutate(Q4 = gsub("Other", "From Other", Q4)) |>
+  separate_rows(Q4, sep = ",(?=From)") |>
+  mutate(Q4 = trimws(Q4))
+
+#Categorizing Q4 Answers
+Q4 <- mission_long |>
+  mutate(item_source = case_when(
+    grepl("Church", Q4) ~ "Church",
+    grepl("mission leaders", Q4) ~ "Mission Leaders",
+    grepl("home ward", Q4) ~ "Ward/Stake",
+    grepl("members|converts|friends", Q4) ~ "Members/Friends",
+    grepl("fellow missionaries", Q4) ~ "Fellow Missionaries",
+    grepl("parents|family", Q4) ~ "Family",
+    grepl("personal records", Q4) ~ "Personal Records",
+    grepl("Other", Q4) ~ "Other",
+    TRUE ~ NA_character_
+  ))
+
+#Finding Counts and Percentage
+memorabilia_counts <- Q4 |>
+  filter(!is.na(Q4)) |>
+  group_by(response_id, Q2, Q3) |>
+  count() |>
+  rename(person = response_id,
+         num_mem_cats = n,
+         missionary = Q2,
+         time = Q3)
+```
+
+```{r}
+#Making Bar Chart of Memorabilia Categories Counts
+ggplot(memorabilia_counts, aes(x = num_mem_cats)) +
+  geom_bar(fill = "#DA9D19") +
+  geom_text(aes(label = paste0(after_stat(count), " (",
+                               scales::percent(after_stat(prop), 
+                                               accuracy = 1), ")")), 
+            stat = "count", y = Inf, vjust = -0.5) +
+  scale_x_continuous(breaks = 1:8) +
+  labs(x = "Categories Selected",
+       y = "",
+       title = "Number of Memorabilia Categories Selected per Missionary",
+       caption = "Average Number of Categories: 6.2 \nTotal Number of Categories: 7597") +
+  coord_cartesian(clip = "off") +
+  theme(plot.title = element_text(margin = margin(b = 20)),
+        plot.margin = margin(t = 10, r = 0, b = 10, l = 0),
+        plot.caption = element_text(hjust = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Categories_Counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Making Bar Chart of Memorabilia Categories Counts
+memorabilia_counts |>
+  filter(!is.na(missionary)) |>
+  ggplot(aes(x = num_mem_cats, fill = missionary, group = missionary)) +
+  geom_bar(aes(y = after_stat(prop)), position = "dodge") +
+  geom_text(aes(label = scales::percent(after_stat(prop), accuracy = 1),
+                color = missionary),
+            stat = "count", y = Inf, fontface = "bold",
+            position = position_dodge(width = 1), vjust = -0.3,
+            show.legend = FALSE) +
+  scale_x_continuous(breaks = 1:8) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("Elder" = "#2986cc", "Sister" = "#c90076")) +
+  scale_color_manual(values = c("Elder" = "#2986cc", "Sister" = "#c90076")) +
+  labs(x = "Categories Selected",
+       y = "",
+       title = "Number of Memorabilia Categories Selected per Missionary") +
+  guides(fill = "none") +
+  coord_cartesian(ylim = c(0, 0.4), clip = "off") +
+  theme(plot.title = element_text(margin = margin(b = 15)),
+        plot.margin = margin(t = 10, r = 0, b = 10, l = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Categories_Counts_Gender.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+### Memorabilia Item Counts
+
+```{r}
+#Making Counts for Memorabilia Items
+item_totals <- mission |>
+  select(response_id, Q2, Q3, q5a_cleaned:q5h_cleaned) |>
+  pivot_longer(
+    cols = q5a_cleaned:q5h_cleaned,
+    names_to = "category",
+    values_to = "items"
+  ) |>
+  filter(!is.na(items)) |>
+  separate_longer_delim(items, delim = ", ") |>
+  count(response_id, Q2, Q3, name = "total_items")
+```
+
+```{r}
+#Making Bar Chart of Memorabilia Categories Counts
+ggplot(item_totals, aes(x = total_items)) +
+  geom_bar(fill = "#DA9D19") +
+  geom_vline(xintercept = median(item_totals$total_items),
+             color = "#1A1A2E", linetype = "dashed", linewidth = 0.8) +
+  annotate("text", x = median(item_totals$total_items, na.rm = TRUE), y = Inf,
+           label = "Median = 13", color = "#1A1A2E",
+           hjust = -0.1, vjust = 1.5) +
+  labs(x = "Memorabilia Items",
+       y = "",
+       title = "Distribution of Memorabilia Items per Missionary",
+       caption = paste0("Total Number of Items: ", scales::comma(sum(item_totals$total_items)))) +
+  theme(plot.caption = element_text(hjust = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Items_Counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Computing the Medians for Each Group
+med_lines <- item_totals |>
+  group_by(Q2) |>
+  summarize(med = median(total_items, na.rm = TRUE))
+
+#Making Bar Chart of Memorabilia Categories Counts
+ggplot(item_totals, aes(x = total_items, fill = Q2)) +
+  geom_bar(aes(y = after_stat(prop), group = Q2)) +
+  geom_vline(data = med_lines, aes(xintercept = med),
+             color = "#2b2b2b", linetype = "dashed", linewidth = 1) +
+  geom_text(data = med_lines,
+            aes(x = med, y = Inf, label = paste("Median =", med)),
+            color = "#2b2b2b", hjust = -0.1, vjust = 1.5, inherit.aes = FALSE) +
+  scale_fill_manual(values = c("Elder" = "#2986cc", "Sister" = "#c90076")) +
+  facet_wrap(~ Q2) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Memorabilia Items",
+       y = "",
+       title = "Distribution of Proportions of Memorabilia Items by Missionary") +
+  guides(fill = "none")
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Items_Counts_Gender.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Counting Items by Memorabilia Category
+lvl <- c("Church", "Ward/Stake", "Mission Leader", "Missionary",
+         "Family", "Members/Converts/Friends", "Personal Records", "Other")
+items_cat <- mission |>
+  select(response_id, Q2, q5a_cleaned:q5h_cleaned) |>
+  rename(
+    "Church"                   = q5a_cleaned, 
+    "Ward/Stake"               = q5b_cleaned,
+    `Mission Leader`           = q5c_cleaned,
+    "Members/Converts/Friends" = q5d_cleaned,
+    "Missionary"               = q5e_cleaned,
+    "Family"                   = q5f_cleaned,
+    `Personal Records`         = q5g_cleaned,
+    "Other"                    = q5h_cleaned
+         ) |>
+  pivot_longer(Church:Other,
+               names_to = "category", values_to = "items") |>
+  separate_longer_delim(items, delim = ", ") |>
+  group_by(response_id, Q2, category) |>
+  summarize(n_items = sum(!is.na(items)), .groups = "drop") |>
+  mutate(category = factor(category, levels = lvl))
+
+#Computing the Medians for Each Group
+med_cat <- items_cat |>
+  group_by(category) |>
+  summarize(med = median(n_items), .groups = "drop") |>
+  mutate(category = factor(category, levels = lvl))
+```
+
+```{r}
+#Making Bar Chart of Memorabilia Categories Counts
+ggplot(items_cat, aes(x = n_items, fill = category)) +
+  geom_bar() +
+  geom_vline(data = med_cat, aes(xintercept = med),
+             color = "#2b2b2b", linetype = "dashed", linewidth = 1) +
+  scale_x_continuous(breaks = seq(0, 12, 3),
+                     minor_breaks = seq(0, 12, 1),
+                     guide = guide_axis(minor.ticks = TRUE)) +
+  scale_fill_manual(values = eight_cols) +
+  facet_wrap(~ category, nrow = 2, axes = "all_x") +
+  labs(x = "Memorabilia Items",
+       y = "",
+       title = "Distribution of Memorabilia Items by Category",
+       caption = "*Dashed Line = Median") +
+  theme(legend.position = "none",
+        panel.grid.minor.x = element_blank(),
+        plot.caption = element_text(hjust = 0))
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Items_Counts_Categories.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Finding the Total Number of Items in Each Category
+category_totals <- items_cat |>
+  group_by(category) |>
+  summarise(n = sum(n_items), .groups = "drop") |>
+  mutate(pct = n / sum(n),
+         label = paste0(n, " (", scales::percent(pct, accuracy = 1), ")"))
+```
+
+```{r}
+#Making Bar Chart of Memorabilia Categories Counts
+ggplot(category_totals, aes(x = reorder(category, n), y = n, fill = category)) +
+  geom_col() +
+  geom_text(aes(label = label), y = Inf, hjust = -0.1) +
+  scale_fill_manual(values = eight_cols) +
+  coord_flip(clip = "off") +
+  annotate("text", x = 0.2, y = Inf, hjust = -0.05, vjust = 1.5,
+           label = "14,055", fontface = "bold", size = 4.5) +
+  annotate("text", x = 0.5, y = Inf, hjust = 0, vjust = 2,
+           label = strrep("\u2014", 8), size = 3.5) +
+  labs(x = "",
+       y = "Count",
+       fill = "Category",
+       title = "Total Number of Items by Memorabilia Category") +
+  theme(plot.margin = margin(t = 10, r = 65, b = 10, l = 0),
+        legend.position = "none")
+
+#Saving Plot
+# ggsave(
+#   filename = "Memorabilia_Items_Total_Counts.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Cross Table of Time and Memorabilia Importance
+ft <- item_totals |>
+  mutate(
+    Q3 = factor(Q3, levels = c(
+      "Less than 6 months", "6 - 12 months", "1-3 years", "3-5 years",
+      "5-10 years", "10-20 years", "20-30 years", "30-40 years", "40+ years")),
+    item_bin = cut(total_items, breaks = c(0, 5, 10, 15, 20, Inf),
+                   labels = c("1-5", "6-10", "11-15", "16-20", "21+"))
+  ) |>
+  rename(`Time from Missionary Service` = Q3) |>
+  janitor::tabyl(`Time from Missionary Service`, item_bin) |>
+  janitor::adorn_totals(c("row", "col")) |>
+  flextable::flextable() |>
+  flextable::autofit() |>
+  flextable::bg(bg = "white", part = "all")
+
+#Saving Table
+# flextable::save_as_image(ft, path = "cross_table_TSS_Items.png")
+```
+
+### Ordinal Regression for Memorabilia Importance
+
+```{r}
+#Fitting the Ordinal Regression Model
+mclm <- clm(Q6_grouped ~ Q2, nominal = ~ Q3_grouped, 
+            data = mission, na.action = na.exclude)
+
+#Looking at the Summary
+summary(mclm)
+```
+
+```{r}
+#Checking 95% Confidence Interval
+confint(mclm, level = 0.95)
+```
+
+**Conclusion:**
+
+- Sisters tend to value their memorabilia more than Elders which is statistically significant.
+
+- The people who are attached stay attached regardless of how long it's been (time does nothing to the moderate-vs-high gradient), but there's a subset that, past the 5-year mark, slips into the low-importance group. So the story is less "attachment fades over time" and more "attachment is durable for most, but a minority drifts toward low importance after about 5 years."
+
+```{r}
+#Checking the Proportional Odds Assumption
+nominal_test(mclm)
+```
+
+```{r}
+#Getting Predictions
+preds <- predict(mclm, type = "prob")
+
+mission_model <- cbind(mission, preds)
+```
+
+```{r}
+#Getting Predicted Probabilities
+pred_plot <- ggeffects::ggemmeans(mclm, terms = "Q3_grouped")
+pred_plot$response.level <- factor(
+  pred_plot$response.level,
+  levels = c("Low importance", "Moderate importance", "High importance"),
+  labels = c("Low", "Moderate", "High")
+)
+
+#Plotting Predicted Probabilities
+ggplot(pred_plot, aes(x = x, y = predicted, color = response.level, 
+                      group = response.level)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.1, color = NA) +
+  geom_line(linewidth = 1.25) +
+  labs(title = "Predicted Probabilities",
+       x = "Time Since Service",
+       y = "Probability",
+       color = "Importance") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(vjust = -1)) +
+  scale_color_manual(values = c("Low" = "#B7C0CC", "Moderate" = "#787F8D", "High" = "#3B4554")) +
+  guides(color = guide_legend(reverse = TRUE))
+
+#Saving Plot
+# ggsave(
+#   filename = "Importance_Probabilities.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Getting Predicted Probabilities
+pred_plot2 <- ggeffects::ggpredict(mclm, terms = c("Q3_grouped", "Q2"))
+pred_plot2$response.level <- factor(
+  pred_plot2$response.level,
+  levels = c("1", "2", "3"),
+  labels = c("Low", "Moderate", "High")
+)
+pred_plot2$x <- factor(
+  pred_plot2$x,
+  levels = c("Less than a year", "1-5 years", "5-20 years", "20+ years"),
+  labels = c("<1", "1-5", "5-20", "20+")
+)
+
+#Getting Plot Colors
+pred_plot2$grp <- interaction(pred_plot2$group, pred_plot2$response.level, 
+                              sep = " - ")
+six_cols <- c(
+  "Elder - Low"       = "#9EC9E8",
+  "Elder - Moderate"  = "#4A90C2",
+  "Elder - High"      = "#1F4E79",
+  "Sister - Low"      = "#F4A6C6",
+  "Sister - Moderate" = "#D14F8A",
+  "Sister - High"     = "#8E1F5B"
+)
+
+#Plotting Predicted Probabilities
+ggplot(pred_plot2, aes(x = x, y = predicted, color = grp, group = grp)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = grp), 
+              alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1.25) +
+  facet_wrap(~ group) +
+  labs(title = "Predicted Probabilities",
+       x = "Time Since Service (Years)",
+       y = "Probability",
+       color = "Group") +
+  theme_minimal() +
+  scale_color_manual(values = six_cols) +
+  scale_fill_manual(values = six_cols, guide = "none") + 
+  guides(color = guide_legend(reverse = TRUE))
+
+#Saving Plot
+# ggsave(
+#   filename = "Importance_Probabilities_Missionaries.png",
+#   plot = last_plot(),
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
+```{r}
+#Making Stacked Bar Chart
+ggplot(pred_plot, aes(x = x, y = predicted, fill = response.level)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(
+    title = "Predicted Probabilities",
+    x = "Time Since Service",
+    y = "Probability",
+    fill = "Importance"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal() +
+  theme(axis.title.x = element_text(vjust = -1)) +
+  scale_fill_manual(values = c("Low" = "#B7C0CC", "Moderate" = "#787F8D", "High" = "#3B4554"))
+```
+
+```{r}
+#Looking at the Contrasts for the Time Periods
+pairs(emmeans::emmeans(mclm, ~ Q3_grouped | Q6_grouped, mode = "prob"))
+```
